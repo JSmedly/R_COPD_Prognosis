@@ -1,0 +1,6 @@
+"0","# get data for hosp_5_years"
+"0","outcome <- ""hosp_5_year"""
+"0","load(paste(""data"", outcome, ""train_data.Rda"", sep=""/""))"
+"0","load(paste(""data"", outcome, ""test_data.Rda"", sep=""/""))"
+"0","load(paste(""data"", outcome, ""train_means.Rda"", sep=""/""))"
+"0","load(paste(""data"", outcome, ""train_sds.Rda"", sep=""/""))"

@@ -1,0 +1,23 @@
+"0","library(mice)"
+"2","
+Attaching package: ‘mice’
+
+"
+"2","The following object is masked from ‘package:stats’:
+
+    filter
+
+"
+"2","The following objects are masked from ‘package:base’:
+
+    cbind, rbind
+
+"
+"0","nimp <- 10"
+"0","pred_mat <- make.predictorMatrix(train_data)"
+"0","# pred_mat[c(""height"", ""weight""), c(""bmi"", ""dlco"")] <- 0"
+"0","meth <- make.method(train_data)"
+"0","imp <- futuremice(train_data, n.core=5,"
+"0","      predictorMatrix = pred_mat, method = meth,"
+"0","      m = nimp, maxit = 20, print = FALSE"
+"0","  )"

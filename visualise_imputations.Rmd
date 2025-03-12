@@ -1,0 +1,336 @@
+---
+title: "Sample R Markdown Notebook"
+output: html_document
+---
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# get data for hosp_5_years
+outcome <- "hosp_5_year"
+load(paste("data", outcome, "train_data.Rda", sep="/"))
+load(paste("data", outcome, "test_data.Rda", sep="/"))
+load(paste("data", outcome, "train_means.Rda", sep="/"))
+load(paste("data", outcome, "train_sds.Rda", sep="/"))
+```
+
+```{r}
+# Get only required columns
+
+preds_cts = c(
+  "decades_from_start", # This is for imputing and including time (hospital effects)
+  "age",
+  "age_2", 
+  "height",
+  "weight",
+  "bmi", 
+  "fev1",
+  "fvc", 
+  "fivc",
+  "fev1_fvc",
+  "fev1_fev6",
+  "pef", 
+  "mmef",
+  "dlco",
+  "spo2"
+)
+preds_bin = c("hosp_past_year", "sex") # Binary predictors
+preds_categ = c("smoking_status", "mmrc") # Categorical
+preds_inter = c("sex:age")
+
+train_data <- train_data[c(preds_bin, preds_cts, preds_categ, outcome)]
+train_data
+```
+
+```{r}
+library(mice)
+
+nimp <- 10
+pred_mat <- make.predictorMatrix(train_data)
+# pred_mat[c("height", "weight"), c("bmi", "dlco")] <- 0
+meth <- make.method(train_data)
+imp <- futuremice(train_data, n.core=5,
+      predictorMatrix = pred_mat, method = meth,
+      m = nimp, maxit = 20, print = FALSE
+  )
+```
+
+
+```{r}
+imp$loggedEvents
+```
+
+```{r}
+plot(imp)
+```
+Imputation here shows height, weight, and bmi not being properly mixed together. The other variables are all sufficiently mixed.
+
+```{r}
+# Don't apply passive imputation since BMI is no longer maintaining its ratio to weight and height
+
+train_data %>% 
+  select(weight, height, bmi) %>%
+  mutate(bmi_calc = weight / height^2)
+
+```
+
+```{r}
+# However, there is a strong correlation
+library(naniar)
+library(ggplot2)
+ggplot(train_data, 
+       aes(x=weight,
+           y=bmi)) +
+  geom_miss_point(alpha=0.1)
+ggplot(train_data, 
+       aes(x=height,
+           y=bmi)) +
+  geom_miss_point(alpha=0.1)
+ggplot(train_data, 
+       aes(x=weight,
+           y=height)) +
+  geom_miss_point(alpha=0.1)
+```
+There is a strong correlation between the standardised weight and bmi. Relations with height and bmi is hard to see (1/height^2 prop BMI). Weak correlation between height and weight.
+Therefore we need to remove feedback loop between weight and bmi. Also remove feedback between height and bmi.
+
+```{r}
+pred_mat[c("weight", "height"), "bmi"] <- 0
+imp.pas <- futuremice(train_data, n.core=5,
+      predictorMatrix = pred_mat, method = meth,
+      m = 10, maxit = 20, print = FALSE
+  )
+```
+
+```{r}
+plot(imp.pas)
+```
+Weight, height and BMI now have better mixing in their chains. Check quickly the other interactions.
+
+```{r}
+ggplot(train_data, 
+       aes(x=height,
+           y=age)) +
+  geom_miss_point(alpha=0.1)
+
+ggplot(train_data, 
+       aes(x=height,
+           y=fev1)) +
+  geom_miss_point(alpha=0.1)
+ggplot(train_data, 
+       aes(x=height,
+           y=fvc)) +
+  geom_miss_point(alpha=0.01)
+ggplot(train_data, 
+       aes(x=height,
+           y=fev1_fvc)) +
+  geom_miss_point(alpha=0.1)
+ggplot(train_data, 
+       aes(x=height,
+           y=fev1_fev6)) +
+  geom_miss_point(alpha=0.1)
+ggplot(train_data, 
+       aes(x=height,
+           y=pef)) +
+  geom_miss_point(alpha=0.1)
+ggplot(train_data, 
+       aes(x=height,
+           y=mmef)) +
+  geom_miss_point(alpha=0.1)
+```
+
+```{r}
+ggplot(train_data, 
+       aes(x=fev1,
+           y=fvc)) +
+  geom_miss_point(alpha=0.01)
+```
+
+```{r}
+# Look at shadows in distributions
+data_shadow <- bind_shadow(train_data)
+data_shadow
+```
+
+Examine is there a correlation between missing data and not taking certain measurements? Specifically, is age or breathlessness particularly correlated with missingness?
+```{r}
+ggplot(data_shadow,
+       aes(x=age,
+           colour = mmrc_NA)) +
+  geom_density()
+ggplot(data_shadow,
+       aes(x=fev1_fvc,
+           colour = mmrc_NA)) +
+  geom_density()
+
+ggplot(data_shadow,
+       aes(x=age,
+           colour = smoking_status_NA)) +
+  geom_density()
+ggplot(data_shadow,
+       aes(x=fev1_fvc,
+           colour = smoking_status_NA)) +
+  geom_density()
+
+ggplot(data_shadow,
+       aes(x=age,
+           colour = dlco_NA)) +
+  geom_density()
+ggplot(data_shadow,
+       aes(x=fev1_fvc,
+           colour = dlco_NA)) +
+  geom_density()
+
+ggplot(data_shadow,
+       aes(x=age,
+           colour = fivc_NA)) +
+  geom_density()
+ggplot(data_shadow,
+       aes(x=fev1_fvc,
+           colour = fivc_NA)) +
+  geom_density()
+
+ggplot(data_shadow,
+       aes(x=age,
+           colour = spo2_NA)) +
+  geom_density()
+ggplot(data_shadow,
+       aes(x=fev1_fvc,
+           colour = spo2_NA)) +
+  geom_density()
+ggplot(data_shadow,
+       aes(x=decades_from_start,
+           colour = spo2_NA)) +
+  geom_density()
+
+ggplot(data_shadow,
+       aes(x=age,
+           colour = pef_NA)) +
+  geom_density()
+ggplot(data_shadow,
+       aes(x=fev1_fvc,
+           colour = pef_NA)) +
+  geom_density()
+
+ggplot(data_shadow,
+       aes(x=age,
+           colour = mmef_NA)) +
+  geom_density()
+ggplot(data_shadow,
+       aes(x=fev1_fvc,
+           colour = mmef_NA)) +
+  geom_density()
+
+```
+For mmrc, smoking status, dlco, and fivc, we see a fairly unbiased relationship between age and fev1_fvc (representative of disease severity). However, the expriatory flow tests (PEF and MMEF) both have different missing data distributions. 
+PEF has a higher proportion of missing values at mid-high FEV1/FVC values, and no missing at low FEV1_FVC. Similarly, PEF has little missingness at older ages, but most of its missing values are for younger patients.
+Inversely, MMEF is mostly missing its values around slightly below average values for FEV1_FVC, and around the mean age (whereas older or younger patients are having their MMEF measured).
+HOWEVER, these are both because of their incredibly small pct missingness (random correlations). This can be seen through use of the histogram
+
+```{r}
+ggplot(data_shadow,
+       aes(x=fev1_fvc,
+           fill = mmef_NA)) +
+  geom_histogram()
+```
+
+We now look at the density plots for the imputed chains.
+
+```{r}
+densityplot(imp.pas)
+```
+PEF and MMEF both are noisier, coming from their imputed chains consisting of a very small number of values from which to create a density plot.
+SPo2 imputations are discrete and plotting their densities is not a good visual representation. The other plots are all good, however. FIVC and DLCO with the most missing values are very tight fits to the original distributions.
+
+We also can note that height, weight, bmi, fivc, pef, and dlco are all easily modelled with gaussians, so we can change the method.
+
+```{r}
+meth_orig <- make.method(train_data)
+meth_fast <- meth_orig
+meth_fast[c("height", "weight", "bmi", "fivc", "pef", "dlco")] <- "norm"
+
+start.time <- Sys.time()
+futuremice(train_data, n.core=5,
+      predictorMatrix = pred_mat, method = meth_orig,
+      m = nimp, maxit = 20, print = FALSE
+  ) 
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+print(time.taken)
+
+start.time <- Sys.time()
+futuremice(train_data, n.core=5,
+      predictorMatrix = pred_mat, method = meth_fast,
+      m = nimp, maxit = 20, print = FALSE
+  ) 
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+print(time.taken)
+
+```
+There is no notable speedup, so continue to use pmm.
+
+
+```{r}
+
+fit <- with(imp, glm(ici(imp) ~ age + height + weight + bmi + sex + fev1 + fvc + fivc + fev1_fvc + fev1_fev6 + pef + mmef + dlco + spo2 + smoking_status + mmrc, family=binomial))
+ps <- rep(rowMeans(sapply(fit$analyses, fitted.values)), imp$m + 1)
+
+# stripplot(imp.pas,data=mmef)
+
+# Use some different methods of plotting spo2 to examine how well it has been imputed.
+# SpO2 against probability of data being missing
+xyplot(imp.pas, spo2 ~ ps | as.factor(.imp), alpha=0.05)
+# SpO2 against severity
+xyplot(imp.pas, spo2 ~ fev1_fvc | as.factor(.imp), alpha=0.05)
+# Trying to increase distance spread of spo2
+xyplot(imp.pas, age~spo2 | as.factor(.imp), na.groups=spo2, cex=c(0.5, 0.1), alpha=0.05)
+xyplot(imp.pas, fev1_fvc~spo2 | as.factor(.imp), na.groups=spo2, cex=c(0.5, 0.2), alpha=c(0.05,0.05))
+# Box and whiskers plot for each imputation
+bwplot(imp.pas, data=spo2)
+# Density plot again
+densityplot(imp.pas, ~ spo2)
+```
+One of the biggest perceived issues is that spo2 has many missing values that get imputed around the lower values for spo2. However, this is just a visualisation issue where it's hard to measure the relative densities. 80% of spo2 is missing, so it needs lots of imputations.
+
+
+Overall, all imputations look appropriate.
+```{r}
+imp.comp <- complete(imp.pas, "long")
+imp.comp
+```
+
+```{r}
+#We can quickly fit models to this and assess normality of residuals for predictors
+modelFit1 <- glm(data=imp.comp%>%filter(.imp==1), formula=hosp_5_year ~ hosp_past_year + sex + age + height + weight + bmi + fev1 + fvc + fev1_fvc + exp(spo2+101) + mmef + pef + dlco + mmrc + smoking_status, family="binomial")
+summary(modelFit1)
+plot(modelFit1)
+anova(modelFit1, test="Chisq")
+```
+
+```{r}
+res <- residuals(modelFit1, type="deviance")
+plot(log(predict(modelFit1)), res)
+abline(h=0, lty=2)
+qqnorm(res)
+qqline(res)
+```
+
+```{r}
+# Tasks to do
+# 
+# Create and save imputed datasets
+# Create model with no feature selection, run prediction on test set.
+# Create model with feature selection, regularisation, etc. on test set.
+# Create XGBoost model on test set.
+# Compare performances for all
+means[["spo2"]]
+
+```
+

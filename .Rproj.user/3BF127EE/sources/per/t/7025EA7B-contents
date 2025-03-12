@@ -1,0 +1,152 @@
+---
+title: "Sample R Markdown Notebook"
+output: html_document
+---
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(dplyr)
+library(readr)
+source("preprocessing_functions.R")
+```
+
+
+# Load dataset and get variables of interest
+```{r}
+# Load data
+path <- "/mnt/Data/deidentified_data/full_cohort/preprocessed_data_long.csv"
+data <- read_csv(file=path, col_names=TRUE, col_select=-1, na=c("", "NA"))
+
+# Get only required columns
+ids <- c("RandID", "visit_number",
+         "has_copd", "has_hosp",
+         "date", "time_diff",
+         "substance")
+preds_cts = c(
+  "age", # Months
+  "height", # m
+  "weight", # kg
+  "bmi", # kg/m^2
+  "fev1", # L
+  "fvc", # L
+  "fivc", # L
+  "fev1_fvc", # %
+  "fev1_fev6", # %
+  "pef", # L/s
+  "mmef", # L/s
+  "dlco",
+  "spo2"
+)
+preds_bin = c("hosp_past_year", "sex") # Binary predictors
+preds_categ = c("smoking_status", "mmrc") # Categorical
+outcomes_bin <- c(
+  "hosp_1_year", "hosp_3_year", "hosp_5_year",
+  "mort_1_year", "mort_3_year", "mort_5_year"
+)
+outcomes_surv <- c(
+  "mort_next_time", # Time in months
+  "hosp_next_time" # Time in months
+)
+preds <- c( preds_bin, preds_cts, preds_categ)
+outcomes <- c(outcomes_bin, outcomes_surv)
+data <- data %>% select(all_of(c(ids, preds, outcomes)))
+head(data)
+```
+```{r}
+data <- data %>% get_first_visit() %>% exclude_patients()
+```
+
+
+
+# Look at missingness in each group
+```{r}
+library(naniar)
+vis_miss(data %>% select(all_of(preds)))
+```
+
+```{r}
+gg_miss_var(data %>% select(preds))
+```
+
+
+
+```{r}
+sprintf("Pct missing cases (all preds): %f",
+        pct_miss_case(data %>% select(all_of(preds))))
+sprintf("Pct missing cases (exclude dlco, fivc): %f",
+        pct_miss_case(data %>% 
+                        select(all_of(preds), -dlco, -fivc)))
+```
+
+```{r}
+gg_miss_upset(data %>% select(all_of(preds)))
+```
+
+```{r}
+gg_miss_fct(x=data%>%select(all_of(preds)), fct=smoking_status)
+```
+
+```{r}
+gg_miss_fct(x=data%>%select(all_of(preds)), fct=mmrc)
+```
+mmrc and spo2 both having highly correlated missing values suggests that they are often measured as a pair (though the presence of mMRC values having non-na spo2 implies other things).
+
+```{r}
+gg_miss_fct(x=data%>%select(all_of(preds)), fct=sex)
+```
+
+```{r}
+gg_miss_fct(x=data%>%select(all_of(preds)), fct=hosp_past_year)
+
+```
+
+hosp_past_year highlights some potentially interesting effects where hospitalisations in prior years increase the rate of having mmrc and dlco. It is possible these were measured in previous hospitalisations and they have been carried forward.
+
+
+Also interested in change in missingness vs date
+```{r}
+library(ggplot2)
+data <- data %>%
+  mutate(date = as.numeric(difftime(date, as.Date("2006-01-01"), units="days")))
+
+ggplot(data, aes(x=date, y=spo2)) + geom_miss_point(alpha=0.01)
+ggplot(data, aes(x=date, y=mmef)) + geom_miss_point(alpha=0.01)
+ggplot(data, aes(x=date, y=fivc)) + geom_miss_point(alpha=0.01)
+ggplot(data, aes(x=date, y=dlco)) + geom_miss_point(alpha=0.01)
+ggplot(data, aes(x=date, y=mmrc)) + geom_miss_point(alpha=0.01)
+ggplot(data, aes(x=date, y=smoking_status)) + geom_miss_point(alpha=0.01)
+ggplot(data, aes(x=date, y=fev1_fev6)) + geom_miss_point(alpha=0.01)
+ggplot(data, aes(x=date, y=height)) + geom_miss_point(alpha=0.01)
+ggplot(data, aes(x=date, y=weight)) + geom_miss_point(alpha=0.01)
+ggplot(data, aes(x=date, y=bmi)) + geom_miss_point(alpha=0.1)
+```
+```{r}
+ggplot(data=data, aes(x=fev1, y=hosp_1_year)) + geom_miss_point(alpha=0.1)
+ggplot(data=data) + geom_bar(aes(x=dlco, group=hosp_1_year, color=hosp_1_year))
+```
+
+
+```{r}
+data %>% select(smoking_status)
+```
+
+
+```{r}
+ggplot(data, aes(x=log(101-spo2))) + geom_histogram()
+ggplot(data, aes(x=spo2^2)) + geom_histogram()
+```
+
+```{r}
+# histogram of dates
+ggplot(data, aes(x=date)) + geom_histogram()
+```
+Distribution is vaguely uniform.
+

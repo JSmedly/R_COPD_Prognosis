@@ -1,0 +1,5 @@
+"0","pred_mat[c(""weight"", ""height""), ""bmi""] <- 0"
+"0","imp.pas <- futuremice(train_data, n.core=5,"
+"0","      predictorMatrix = pred_mat, method = meth,"
+"0","      m = 10, maxit = 20, print = FALSE"
+"0","  )"

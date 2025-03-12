@@ -1,0 +1,2 @@
+"0","# Box and whiskers plot for each imputation"
+"0","bwplot(imp.pas, data=spo2)"

@@ -1,0 +1,733 @@
+```{r}
+library(miselect)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+library(gridExtra)
+```
+
+
+```{r}
+# Load fitted regularised models, and calculate evaluation metrics.
+outcome <- "hosp_1_year"
+
+model_dir <- paste("models", outcome, sep="/")
+
+load(paste(model_dir, "fit_female_adWcoef.Rda", sep="/"))
+load(paste(model_dir, "fit_male_adWcoef.Rda", sep="/"))
+
+```
+
+```{r}
+# Display best parameters
+female.alpha.1se <- fit.female$alpha.1se
+female.lambda.1se <- fit.female$lambda.1se
+
+female.alpha.min <- fit.female$alpha.min
+female.lambda.min <- fit.female$lambda.min
+
+
+sprintf("alpha, lambda")
+sprintf("min: %.2f, %.2e", female.alpha.min, female.lambda.min)
+sprintf("1se: %.2f, %.2e", female.alpha.1se, female.lambda.1se)
+
+```
+
+```{r}
+# Display coefficients
+print("Coefficients at minimum deviance")
+coef(fit.female, lambda=female.lambda.min, alpha=female.alpha.min)
+print("Coefficients with maximum regularisation within 1 SE of minimum")
+coef(fit.female, lambda=female.lambda.1se, alpha=female.alpha.1se)
+```
+
+```{r}
+library(ggplot2)
+library(latex2exp)
+# Plot change in cmv vs lambda
+plot_cv_lambda <- function(fit) {
+  # Plot change in cvm vs lambda
+  plot.data <- data.frame(lambda=fit$lambda,
+                          cvm=fit$cvm)
+  # Gather on alpha value
+  plot.data <- plot.data %>% gather("alpha", "cvm", 2:ncol(plot.data))
+  # Note if the models are run with more values of alpha, 
+  #  then will need a different way of plotting the lambdas. Use gather.
+  plot.data
+  plt <- ggplot(data=plot.data) +
+    geom_line(aes(x=log(lambda), y=cvm, 
+                  group=alpha, color=alpha)) +
+    scale_color_discrete(
+      name = expression(alpha),
+      labels = sprintf(r'(%.1f)', fit$alpha)
+        #lapply(sprintf(r'($alpha = %.2f$)', fit$alpha), TeX)
+      # unname(TeX(c("$\\alpha =$ 1", "$\\alpha$ = 0.5")))
+      # labels = unname(TeX(c(paste("$\\alpha = 1$",fit$alpha, "$",sep=""))))
+    ) +
+    # geom_line(aes(x=log(lambda), y=cvm.2), color='red') + 
+    geom_vline(aes(xintercept=log(fit$lambda.min)), linetype="dotted") + 
+    geom_vline(aes(xintercept=log(fit$lambda.1se)), linetype="dashed") +
+    labs(x=expression(log(lambda)),
+         y="Cross-Validated Mean (deviance)",
+         title=paste("Cross-Validated Performance (",
+                     outcome_map[outcome],
+                     ")", sep="")
+    ) +
+    theme_bw()
+  return(plt)
+}
+fit <- fit.female
+plot.data
+print(plot_cv_lambda(fit.male))
+print(plot_cv_lambda(fit.female))
+
+
+```
+
+```{r, fig.height=7, fig.width=5}
+library(scales)
+# Display coefficients against lambda.
+plot_coef_paths <- function(fit, alpha=1) {
+  # Plot the paths of the continuous variables vs -log(lambda)
+  lambdas <- fit$lambda
+  coef_list <- list()
+  for(i in 1:length(lambdas)) {
+    lambda= lambdas[i]
+    coef_list[[i]] <- coef(fit, lambda=lambda, alpha=alpha)
+  }
+  coefs.df <- data.frame(do.call(rbind, coef_list))
+  coefs.df["lambda"] <- lambdas # Append lambdas column for plotting
+  coefs.df <- coefs.df %>% 
+    # Remove categorical preds
+    select(-X.Intercept., 
+           -mmrc.X1, -mmrc.X2, -mmrc.X3, -mmrc.X4, 
+           -smoking_status.X1, -smoking_status.X2) 
+  
+  # Parse the colnames with scales
+  colnames(coefs.df) <- c(
+    "Time",
+    "Age",
+    "Age^2",
+    "Height",
+    "Weight",
+    "BMI",
+    "FEV[1]",
+    "FVC",
+    "FIVC",
+    "FEV[1]/FVC",
+    "FEV[1]/FEV_6",
+    "PEF",
+    "MMEF",
+    "DLCO",
+    "SpO[2]",
+    "Hospitalisation~Past~Year", # Tilde is parsed as space
+    "lambda"
+  )
+  coefs.df <- coefs.df %>%
+    gather("variable", "coef", 1:(ncol(coefs.df)-1)) # Gather so we can group across variables, don't gather lambda.
+  
+  # Define linetype formatting string to better differentiate
+  available_linetypes <- c("solid", "dashed", "dotted",
+                           "dotdash", "longdash", "twodash")
+  num_variables <- length(unique(coefs.df$variable))
+  linetypes <- rep(available_linetypes, length.out = num_variables)
+  
+  # Plot the coefs, gathered and colored by variable.
+  plt <- ggplot(coefs.df) +
+    geom_line(aes(x=-log(lambda), y=coef, group=variable, color=variable,
+                  linetype=variable)) +
+    scale_color_discrete(name="Variable",
+                         labels=label_parse()) + 
+    scale_linetype_manual(name="Variable",
+                          labels=label_parse(),
+                          values=linetypes) + 
+    theme_bw() +
+    labs(x=expression(-log(lambda)),
+         y="Coefficient",
+         title="Coefficient Paths (non-categorical)")
+  return(plt)
+}
+alpha=1
+plt <- plot_coef_paths(fit.female, alpha=0.5)
+print(plt)
+plot_coef_paths(fit.female, alpha=1)
+
+```
+The most anomalous part of the coefficients is how weight, bmi, and height interact. 
+```{r}
+plot_bmi_paths <- function(fit) {
+  lambdas <- fit$lambda
+  coef_list <- list()
+  for(i in 1:length(lambdas)) {
+    lambda= lambdas[i]
+    coef_list[[i]] <- coef(fit.female, lambda=lambda)
+  }
+  coefs.df <- data.frame(do.call(rbind, coef_list))
+  coefs.df["lambda"] <- lambdas # Append lambdas column for plotting
+  
+  transition_points <- coefs.df %>% 
+    select(lambda, weight, height, bmi) %>%
+    lapply(function(x) { which(x != 0 & lag(x, default=0)==0)}) 
+  trans.df <- transition_points[!names(transition_points) %in% "lambda"] %>% 
+    unlist() %>% 
+    as.data.frame() 
+  colnames(trans.df) <- "intercept"
+  trans.df <- trans.df %>% 
+    mutate(intercept = -log(lambdas[intercept-1]))
+  # bmi_trans <- lambdas[transition_points$bmi-1]
+  # weight_trans <- lambdas[transition_points$weight-1]
+  # height_trans <- lambdas[transition_points$height-1]
+  
+  coefs.df <- coefs.df %>% 
+    select(lambda, weight, height, bmi) %>%
+    gather("variable", "coef", 2:4) # Gather so we can group across variables
+  
+  # Plot the coefs, gathered and colored by variable.
+  ggplot(coefs.df) +
+    geom_line(aes(x=-log(lambda), y=coef, group=variable, color=variable)) +
+    geom_vline(data=trans.df, aes(xintercept=intercept), color='black') +
+    # geom_vline(aes(xintercept=-log(height_trans)), color='black') +
+    # geom_vline(aes(xintercept=c(12, 14), color='black')) +
+    theme_minimal() +
+    labs(x="-log(lambda)",
+         y="Coefficient",
+         title="Coefficient Paths (non-categorical)")
+}
+
+plot_bmi_paths(fit.female)
+```
+
+```{r}
+
+
+group_smoking_status <- function(df) {
+  df <- df %>% 
+    mutate(smoking_status.Ex = smoking_status.X1,
+           smoking_status.Current = smoking_status.X1 + smoking_status.X2) %>%
+    select(-smoking_status.X1, -smoking_status.X2)
+  return(df)
+}
+
+group_mmrc <- function(df) {
+  df <- df %>%
+    mutate(mmrc.1 = mmrc.X1,
+           mmrc.2 = mmrc.X1 + mmrc.X2,
+           mmrc.3 = mmrc.X1 + mmrc.X2 + mmrc.X3,
+           mmrc.4 = mmrc.X1 + mmrc.X2 + mmrc.X3 + mmrc.X4) %>%
+    select(-mmrc.X1, -mmrc.X2, -mmrc.X3, -mmrc.X4)
+}
+
+format_var <- function(str_var) {
+  if(str_var=="smoking_status") {
+    title <- "Coefficient Paths (Smoking Status)"
+    legend.name <- "Smoking Status"
+    legend.breaks <- c("smoking_status.Ex", "smoking_status.Current")
+    legend.labels <- c("Smoking Status=Ex", "Smoking Status=Current")
+  }
+  else if(str_var=="mmrc") {
+    title <- "Coefficient Paths (mMRC)"
+    legend.name = "mMRC"
+    legend.breaks <- c("mmrc.1", "mmrc.2", "mmrc.3", "mmrc.4")
+    legend.labels <- c("mMRC=1", "mMRC=2", "mMRC=3", "mMRC=4")
+  }
+  return(list(title=title, 
+              legend.breaks=legend.breaks, 
+              legend.labels=legend.labels))
+}
+
+plot_categ_coef_paths <- function(fit, alpha=1) {
+  lambdas <- fit$lambda
+  coef_list <- list()
+  for(i in 1:length(lambdas)) {
+    lambda= lambdas[i]
+    coef_list[[i]] <- coef(fit, lambda=lambda, alpha=alpha)
+  }
+  coefs.df <- data.frame(do.call(rbind, coef_list))
+  coefs.df["lambda"] <- lambdas # Append lambdas column for plotting
+  categ_coefs <- coefs.df %>% 
+    group_smoking_status() %>%
+    group_mmrc() %>%
+    select(
+      lambda, 
+      mmrc.1, mmrc.2, mmrc.3, mmrc.4, 
+      smoking_status.Ex, smoking_status.Current
+      ) %>%
+    gather("level", "coef", 2:7)  %>% # Gather so we can group across variables
+    mutate(variable = str_remove(level, "\\..*$"))
+  
+  
+  # Plot the coefs, gathered and colored by variable.
+  out <- by(
+    data = categ_coefs, 
+    INDICES = categ_coefs$variable,
+    FUN = function(m) {
+      m <- droplevels(m)
+      formats <- format_var(m[1,'variable'])
+      m <- ggplot(m) +
+        geom_line(aes(x=-log(lambda), y=coef, group=level, color=level)) +
+        # facet_wrap(vars(variable), scales="free_y") + 
+        theme_minimal() +
+        labs(x="-log(lambda)",
+             y="Coefficient",
+             title=formats$title) +
+        scale_colour_discrete(name=formats$legend.name,
+                             breaks=formats$legend.breaks,
+                             labels=formats$legend.labels)+
+        theme(legend.position = "right")
+      }
+    )
+  plt <- do.call(grid.arrange, out)
+  return(plt)
+}
+
+plt<-plot_categ_coef_paths(fit.male, alpha=1)
+print(plt)
+# plot_categ_coef_paths(fit.female, alpha=1)
+```
+
+
+
+```{r}
+library(flextable)
+library(officer)
+library(tibble)
+library(stringr)
+
+# Utility function to format sub/super scripts based on ^ or _
+text <- "X^{2} (Decade)"
+format_sub_super_script <- function(text) {
+  # See this thread for the regex magic. 
+  # https://stackoverflow.com/questions/15575221/why-does-strsplit-use-positive-lookahead-and-lookbehind-assertion-matches-differ 
+  
+  # Split text at '^' or '_', keeping the character in the right group.
+  elements <- strsplit(text, split = "(?<=.)(?=[\\^\\_])", perl = TRUE)[[1]]
+  # Create empty holder for formatted elements
+  formatted_elements <- list() #vector("list", length = length(elements))
+  for (i in seq_along(elements)) {
+    if (grepl("\\{.*\\}", elements[i], perl = TRUE)) {
+      parts <- strsplit(elements[i], split="\\{|\\}", perl = TRUE)[[1]]
+      if (length(parts) == 3) { # Pattern: "^{script} (extra string)"
+        formatted_elements[[length(formatted_elements)+1]] <- 
+          if (grepl("\\^", parts[1])) as_sup(parts[2]) else as_sub(parts[2])
+        formatted_elements[[length(formatted_elements)+1]] <- parts[3]
+      } else if (length(parts) == 2) { # Pattern: "^{script}"
+        formatted_elements[[length(formatted_elements)+1]] <- 
+          if (grepl("\\^", parts[1])) as_sup(parts[2]) else as_sub(parts[2])
+      } else { # Should not get here
+        print(paste("ERROR:", elements[i], "contains weird pattern")) 
+        formatted_elements[[length(formatted_elements)+1]] <- elements[i]
+      }
+    } else { # Element does not contain subscript or superscript
+      formatted_elements[[length(formatted_elements)+1]] <- elements[i]
+    }
+  }
+  # return(as_paragraph(unlist(formatted_elements), sep=""))
+  return(as_paragraph(list_values=formatted_elements))
+}
+
+formatted <- format_sub_super_script(text)
+```
+
+
+```{r}
+# Create dataframe of male-female coefs for each outcome, using the minimum value
+create_coef_table <- function(dest_path) {
+  outcomes <- c("hosp_1_year", 
+                "hosp_3_year",
+                "hosp_5_year",
+                "mort_1_year",
+                "mort_3_year",
+                "mort_5_year")
+  
+  female.coef_list <- list()
+  male.coef_list <- list()
+  for (outcome in outcomes) {
+    # Load fit.female and fit.male
+    load(paste("models", outcome, "fit_female_adWcoef.Rda", sep="/"))
+    load(paste("models", outcome, "fit_male_adWcoef.Rda", sep="/"))
+    female.coef_list[
+      paste(outcome, "female", sep=".")] <-list(coef(fit.female))
+    male.coef_list[paste(outcome, "male", sep=".")] <- list(coef(fit.male))
+  }
+  coef.df <- cbind(data.frame(female.coef_list), data.frame(male.coef_list))
+  save(coef.df, file="results/coefs.Rda")
+  # coef.df <- data.frame(coef_list)
+  coef.df <- coef.df %>% 
+    # Transpose
+    t() %>% 
+    as.data.frame() %>%
+    # group mmrc and smoking status
+    group_mmrc() %>% 
+    group_smoking_status() %>% 
+    t() %>% 
+    as.data.frame() 
+  # Save coef.df for future use
+  
+  
+  # Define rownames
+  rownames(coef.df) <- c(
+    "(Intercept)",
+    "Time",
+    "Age",
+    "Age^{2}",
+    "Height",
+    "Weight",
+    "BMI",
+    "FEV_{1}",
+    "FVC",
+    "FIVC",
+    "FEV_{1}/FVC",
+    "FEV_{1}/FEV_{6}",
+    "PEF",
+    "MMEF",
+    "DLCO",
+    "SpO^{2}",
+    "Hospitalisation (Past Year)",
+    "mMRC=1",
+    "mMRC=2",
+    "mMRC=3",
+    "mMRC=4",
+    "Smoking Status=Ex",
+    "Smoking Status=Current"
+  )
+  # Make rownames a column
+  coef.df <- coef.df %>% 
+    rownames_to_column("Variable")
+  # Prepare flextable
+  options(digits=2)
+  ft <- flextable(coef.df)
+  # Apply sub and super scripting to the rownames.
+  # This approach is a hack, but it works
+  for (i in 1:nrow(coef.df)) {
+    ft <- ft %>%
+      compose(i = i, j = "Variable",
+              value = format_sub_super_script(coef.df[i,"Variable"])
+              )
+  }
+  ft <- ft %>% set_header_labels(
+    hosp_1_year.female="Hosp. 1 years", 
+    hosp_3_year.female="Hosp. 3 years",
+    hosp_5_year.female="Hosp. 5 years",
+    mort_1_year.female="Mort. 1 years",
+    mort_3_year.female="Mort. 3 years",
+    mort_5_year.female="Mort. 5 years",
+    hosp_1_year.male="Hosp. 1 years", 
+    hosp_3_year.male="Hosp. 3 years",
+    hosp_5_year.male="Hosp. 5 years",
+    mort_1_year.male="Mort. 1 years",
+    mort_3_year.male="Mort. 3 years",
+    mort_5_year.male="Mort. 5 years"
+    ) %>%
+    add_header_row(values=c("", "Female", "Male"),
+                   colwidths=c(1,6,6)) %>%
+    merge_v(part="header") %>%
+    set_table_properties(width=0.5) %>%
+    align(align = "center", part="all") %>%
+    autofit()
+  ft  
+  save_as_docx(ft, path=dest_path)  
+  return(ft)
+  options(digits=7)
+}
+
+ft <- create_coef_table("results/coefs.docx")
+ft
+
+```
+
+```{r}
+# Converts a list of 'y's and 'predictions' into a list of roc objects
+create_roc_list <- function(y, preds) {
+  roc <- lapply(1:nimp, function(i) roc(as.numeric(y[[i]]), 
+                                        as.numeric(preds[[i]]),
+                                        direction="<",
+                                        levels=c(0,1)))
+  return(roc)
+}
+
+# Creates a dataframe with nimp rows of auc mean and standard errors
+calculate_auc_df <- function(roc_list) {
+  auc_df <- bind_rows(lapply(seq_along(roc_list), function(i) {
+    auc_df <- data.frame(
+      auc_mean = ci(roc_list[[i]])[2],
+      auc_se = (ci(roc_list[[i]])[3]-ci(roc_list[[i]])[1])/(2*1.96)
+    )
+    return(auc_df)
+  }))
+  return(auc_df)
+}
+
+# Creates a dataframe with nimp rows of sens and spec mean and standard errors
+roc_list <- roc_list.female
+calculate_sens_spec_df <- function(roc_list) {
+  sens_spec_df <- bind_rows(lapply(seq_along(roc_list), function(i) {
+    coord <- coords(roc_list[[i]], "best", 
+                   ret=c("sensitivity", "specificity"), 
+                   best.method="closest.topleft")
+    sens <- ci.se(roc_list[[i]], specificities=coord$specificity,
+                  boot.n=1000, progress="none")
+    spec <- ci.sp(roc_list[[i]], sensitivities=coord$sensitivity,
+                  boot.n=1000, progress="none")
+    sens_spec_df <- data.frame(
+      sens_mean = sens[2],
+      sens_se = (sens[3]-sens[1])/(2*1.96),
+      spec_mean = spec[2],
+      spec_se = (spec[3]-spec[1])/(2*1.96)
+    )
+    return(sens_spec_df)
+  }))
+}
+```
+
+
+```{r}
+source("preprocessing_functions.R")
+library(mice)
+library(pROC)
+library(psfmi)
+# Calculate AUCs, sens, spec on training set
+outcomes <- c("hosp_1_year", 
+              "hosp_3_year",
+              "hosp_5_year",
+              "mort_1_year",
+              "mort_3_year",
+              "mort_5_year")
+nimp <- 100
+preds <- rownames(coef.df)[-1]
+  
+# AUC, Sens, and Spec contain mean and 95% CI after pooling using Rubin's
+auc_pooled.female <- as.numeric(list())
+sens_pooled.female <- as.numeric(list())
+spec_pooled.female <- as.numeric(list())
+
+auc_pooled.male <- as.numeric(list())
+sens_pooled.male <- as.numeric(list())
+spec_pooled.male <- as.numeric(list())
+
+# outcome <- "hosp_1_year"
+# load coefficients
+load("results/coefs.Rda")
+
+# Loop through every outcome
+for (outcome in outcomes) {
+  print(outcome)
+  start.time <- Sys.time()
+  print(start.time)
+  # load imputed database
+  load(paste("data", outcome, "train_imp_100.Rda", sep="/"))
+  load(paste("data", outcome, "test_imp_100.Rda", sep="/"))
+
+  # Get imputed datasets into dfs list
+  dfs <- lapply(1:nimp, 
+                  function(i) prepare_categ_vars(
+                    complete(train_imp, action=i), 
+                    outcome)
+                  )
+  # Female lists
+  x.female <- list()
+  y.female <- list()
+  preds.female <- list()
+  coef.female <- coef.df %>%
+    select(paste(outcome, "female", sep=".")) %>%
+    as.matrix()
+  roc.female <- list()
+  
+  # Male lists
+  x.male <- list()
+  y.male <- list()
+  preds.male <- list()
+  coef.male <- coef.df %>% 
+    select(paste(outcome, "male", sep=".")) %>%
+    as.matrix()
+  roc.male <- list()
+
+  # Generate list of design matrices and imputed responses
+  i <- 1
+  for (i in 1:nimp) {
+    x.female[[i]] <-
+      as.matrix(dfs[[i]][dfs[[i]][,"sex"]==0, preds])
+    x.male[[i]] <-
+      as.matrix(dfs[[i]][dfs[[i]][,"sex"]==1, preds])
+    y.female[[i]] <- dfs[[i]][dfs[[i]][,"sex"]==0, "outcome"]
+    y.male[[i]] <- dfs[[i]][dfs[[i]][,"sex"]==1, "outcome"]
+    
+    # Calculate preds
+    preds.female[[i]] <- cbind(1, x.female[[i]]) %*% coef.female
+    preds.male[[i]] <- cbind(1, x.male[[i]]) %*% coef.male
+  }
+  
+  # Create ROC objects
+  roc_list.female <- create_roc_list(y.female, preds.female)
+  roc_list.male <- create_roc_list(y.male, preds.male)
+  
+  # Calculate AUC, Sens, and Spec mean and standard errors for each imp
+  auc_df.female <- calculate_auc_df(roc_list.female)
+  auc_df.male <- calculate_auc_df(roc_list.male)
+  sens_spec_df.female <- calculate_sens_spec_df(roc_list.female)
+  sens_spec_df.male <- calculate_sens_spec_df(roc_list.male)
+  
+  
+  # Calculate AUC, Sens, Spec and pool using Rubin's rules
+  ## Female
+  auc_pooled.female <- rbind(auc_pooled.female,
+                             pool_auc(auc_df.female$auc_mean, 
+                                      auc_df.female$auc_se, 
+                                      nimp=nimp))
+  sens_pooled.female <- rbind(sens_pooled.female,
+                              pool_auc(sens_spec_df.female$sens_mean,
+                                       sens_spec_df.female$sens_se,
+                                       nimp=nimp))
+  spec_pooled.female <- rbind(spec_pooled.female,
+                              pool_auc(sens_spec_df.female$spec_mean,
+                                       sens_spec_df.female$spec_se,
+                                       nimp=nimp))
+  ## Male
+  auc_pooled.male <- rbind(auc_pooled.male, 
+                           pool_auc(auc_df.male$auc_mean, 
+                                    auc_df.male$auc_se, 
+                                    nimp=nimp))
+  sens_pooled.male <- rbind(sens_pooled.male,
+                              pool_auc(sens_spec_df.male$sens_mean,
+                                       sens_spec_df.male$sens_se,
+                                       nimp=nimp))
+  spec_pooled.male <- rbind(spec_pooled.male,
+                              pool_auc(sens_spec_df.male$spec_mean,
+                                       sens_spec_df.male$spec_se,
+                                       nimp=nimp))
+  end.time <- Sys.time()
+  print(end.time-start.time)
+}
+auc_pooled.female <- as.data.frame(auc_pooled.female)
+rownames(auc_pooled.female) <- outcomes
+sens_pooled.female <- as.data.frame(sens_pooled.female)
+rownames(sens_pooled.female) <- outcomes
+spec_pooled.female <- as.data.frame(spec_pooled.female)
+rownames(spec_pooled.female) <- outcomes
+
+
+auc_pooled.male <- as.data.frame(auc_pooled.male)
+rownames(auc_pooled.male) <- outcomes
+sens_pooled.male <- as.data.frame(sens_pooled.male)
+rownames(sens_pooled.male) <- outcomes
+spec_pooled.male <- as.data.frame(spec_pooled.male)
+rownames(spec_pooled.male) <- outcomes
+
+```
+
+```{r}
+colnames(auc_pooled.female) <- paste('auc',
+                                     'female',
+                                     c('low', 'mean', 'up'), sep=".")
+colnames(sens_pooled.female) <- paste('sens',
+                                      'female',
+                                      c('low', 'mean', 'up'), sep=".")
+colnames(spec_pooled.female) <- paste('spec',
+                                      'female',
+                                      c('low', 'mean', 'up'), sep=".")
+colnames(auc_pooled.male) <- paste('auc',
+                                   'male',
+                                   c('low', 'mean', 'up'), sep=".")
+colnames(sens_pooled.male) <- paste('sens',
+                                    'male',
+                                    c('low', 'mean', 'up'), sep=".")
+colnames(spec_pooled.male) <- paste('spec',
+                                   'male',
+                                   c('low', 'mean', 'up'), sep=".")
+
+performances.all <- cbind(auc_pooled.female,
+                          sens_pooled.female, 
+                          spec_pooled.female,
+                          auc_pooled.male, 
+                          sens_pooled.male, 
+                          spec_pooled.male)
+
+save(performances.all, file="results/performances_all.Rda")
+```
+
+
+```{r}
+library(flextable)
+library(dplyr)
+library(tibble)
+
+load("results/performances_all.Rda")
+rownames(performances.all) <- c(
+  "Hosp. 1 year",
+  "Hosp. 3 years",
+  "Hosp. 5 years",
+  "Mort. 1 year",
+  "Mort. 3 years",
+  "Mort. 5 years"
+)
+performances.all
+# set_flextable_defaults(digits=3)
+ft <- flextable(performances.all)
+options(digits=2)
+set_flextable_defaults(digits=3)
+ft <- flextable(performances.all %>%
+                  rownames_to_column("Outcome"), col_keys = c("Outcome",
+                                               "auc.female", 
+                                               "sens.female",
+                                               "spec.female",
+                                               "auc.male",
+                                               "sens.male",
+                                               "spec.male")) %>%
+  colformat_num(decimal.mark = ".", na_str="NaN") %>%
+  mk_par(j="auc.female", 
+         value = as_paragraph(auc.female.mean,
+                              " (", auc.female.low,
+                              ", ", auc.female.up,
+                               ")")) %>%
+  mk_par(j="sens.female",
+         value = as_paragraph(sens.female.mean,
+                              " (", sens.female.low,
+                              ", ", sens.female.up,
+                              ")")) %>%
+  mk_par(j="spec.female",
+         value = as_paragraph(spec.female.mean,
+                              " (", spec.female.low,
+                              ", ", spec.female.up,
+                              ")")) %>%
+  mk_par(j="auc.male",
+         value = as_paragraph(auc.male.mean,
+                              " (", auc.male.low,
+                              ", ", auc.male.up,
+                              ")")) %>%
+  mk_par(j="sens.male",
+         value = as_paragraph(sens.male.mean,
+                              " (", sens.male.low,
+                              ", ", sens.male.up,
+                              ")")) %>%
+  mk_par(j="spec.male",
+         value = as_paragraph(spec.male.mean,
+                              " (", spec.male.low,
+                              ", ", spec.male.up,
+                              ")")) %>%
+  # set_header_labels(auc.female = "AUC Female") %>%
+  add_header_row(values=c("", "AUC", "Sens", "Spec", "AUC", "Sens", "Spec"),
+                 colwidths=c(1,1,1,1,1,1,1)) %>%
+  add_header_row(values=c("", "Female", "Male"),
+                 colwidths = c(1,3,3)) %>%
+  theme_vanilla() %>%
+  align(align = "center", part="header") %>%
+  autofit()
+ft
+save_as_docx(ft, path="results/performances_all.docx")  
+
+```
+
+
+```{r}
+# Calculate AUCs, sens, spec on testing set
+```
+
+```{r}
+# Draw ROC curve for each pathology
+```
+
+
+```{r}
+# Cox stuff
+```
+

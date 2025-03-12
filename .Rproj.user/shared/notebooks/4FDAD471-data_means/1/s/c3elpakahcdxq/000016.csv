@@ -1,0 +1,70 @@
+"0","source(""preprocessing_functions.R"")"
+"0","library(dplyr)"
+"0","library(readr)"
+"0",""
+"0","# Generate means and sds for full population"
+"0","# Load data"
+"0","path <- ""/mnt/Data/deidentified_data/full_cohort/preprocessed_data_long.csv"""
+"0","data <- read_csv(file=path, col_names=TRUE, col_select=-1, na=c("""", ""NA""))"
+"2","New names:"
+"2","[1mRows: [22m[34m22096[39m [1mColumns: [22m[34m95[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m───────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m   (4): sex, race, smoking_status, substance
+[32mdbl[39m  (60): RandID, mort_age, visit_number, time_diff, age, height, weight, ...
+[33mlgl[39m  (28): has_copd, has_ct, has_hosp, pr_complete_ever, home_oxygen_ever, ...
+[34mdate[39m  (3): diagnosis_date, pr_start_date, date"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","Error in exists(cacheKey, where = .rs.WorkingDataEnv, inherits = FALSE) : 
+  invalid first argument
+"
+"2","Error in assign(cacheKey, frame, .rs.CachedDataEnv) : 
+  attempt to use zero-length variable name
+"
+"0","# Get only required columns"
+"0","ids <- c(""RandID"", ""visit_number"","
+"0","         ""date"")"
+"0","preds_cts = c("
+"0","  ""age"", # Months"
+"0","  ""height"", # m"
+"0","  ""weight"", # kg"
+"0","  ""bmi"", # kg/m^2"
+"0","  ""fev1"", # L"
+"0","  ""fvc"", # L"
+"0","  ""fivc"", # L "
+"0","  ""fev1_fvc"", # %"
+"0","  ""fev1_fev6"", # %"
+"0","  ""pef"", # L/s"
+"0","  ""mmef"", # L/s"
+"0","  ""dlco"","
+"0","  ""spo2"""
+"0",")"
+"0","preds_bin = c(""hosp_past_year"", ""sex"") # Binary predictors"
+"0","preds_categ = c(""smoking_status"", ""mmrc"") # Categorical"
+"0","outcomes_bin <- c("
+"0","  ""hosp_1_year"", ""hosp_3_year"", ""hosp_5_year"", "
+"0","  ""mort_1_year"", ""mort_3_year"", ""mort_5_year"""
+"0",")"
+"0",""
+"0","preds <- c( preds_bin, preds_cts, preds_categ)"
+"0","outcomes <- c(outcomes_bin, ""mort_next_time"", ""hosp_next_time"")"
+"0","data <- data %>% select(all_of(c(ids, preds, outcomes)))"
+"2","Error in exists(cacheKey, where = .rs.WorkingDataEnv, inherits = FALSE) : 
+  invalid first argument
+"
+"2","Error in assign(cacheKey, frame, .rs.CachedDataEnv) : 
+  attempt to use zero-length variable name
+"
+"0","data <- data %>%"
+"0","  get_first_visit() %>%"
+"0","  exclude_patients() %>%"
+"0","  basic_preprocessing()"
+"2","Error in exists(cacheKey, where = .rs.WorkingDataEnv, inherits = FALSE) : 
+  invalid first argument
+"
+"2","Error in assign(cacheKey, frame, .rs.CachedDataEnv) : 
+  attempt to use zero-length variable name
+"
+"0","head(data)"

@@ -1,0 +1,4 @@
+"0","ggplot(data_shadow,"
+"0","       aes(x=age,"
+"0","           colour = mmrc_NA)) +"
+"0","  geom_density()"

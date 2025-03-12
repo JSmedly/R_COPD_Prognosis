@@ -1,0 +1,8 @@
+"0","# Load fitted regularised models, and calculate evaluation metrics."
+"0","outcome <- ""hosp_1_year"""
+"0",""
+"0","model_dir <- paste(""models"", outcome, sep=""/"")"
+"0",""
+"0","load(paste(model_dir, ""fit_female_adWcoef.Rda"", sep=""/""))"
+"0","load(paste(model_dir, ""fit_male_adWcoef.Rda"", sep=""/""))"
+"0",""

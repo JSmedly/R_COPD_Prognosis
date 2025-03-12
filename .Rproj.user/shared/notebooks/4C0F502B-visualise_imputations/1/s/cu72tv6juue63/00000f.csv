@@ -1,0 +1,3 @@
+"0","# Look at shadows in distributions"
+"0","data_shadow <- bind_shadow(train_data)"
+"0","data_shadow"

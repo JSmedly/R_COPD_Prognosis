@@ -1,0 +1,4 @@
+"0","ggplot(train_data, "
+"0","       aes(x=fev1,"
+"0","           y=fvc)) +"
+"0","  geom_miss_point(alpha=0.01)"

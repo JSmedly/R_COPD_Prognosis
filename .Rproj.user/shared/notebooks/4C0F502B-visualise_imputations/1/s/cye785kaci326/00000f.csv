@@ -1,0 +1,7 @@
+"0","# However, there is a strong correlation"
+"0","library(naniar)"
+"0","library(ggplot2)"
+"0","ggplot(train_data, "
+"0","       aes(x=weight,"
+"0","           y=bmi)) +"
+"0","  geom_miss_point(alpha=0.1)"

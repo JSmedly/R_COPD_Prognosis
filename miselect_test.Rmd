@@ -1,0 +1,379 @@
+```{r}
+# load miselect
+library(miselect)
+library(mice)
+
+```
+
+```{r}
+# Load imputed data
+outcome <- "hosp_1_year"
+
+load(paste("data", outcome, "train_data.Rda", sep="/"))
+load(paste("data", outcome, "test_data.Rda", sep="/"))
+load(paste("data", outcome, "train_imp_100.Rda", sep="/"))
+load(paste("data", outcome, "test_imp_100.Rda", sep="/"))
+
+preds_cts = c(
+  "decades_from_start", # This is for imputing and including time (hospital effects)
+  "age",
+  "age_2", 
+  "height",
+  "weight",
+  "bmi", 
+  "fev1",
+  "fvc", 
+  "fivc",
+  "fev1_fvc",
+  "fev1_fev6",
+  "pef", 
+  "mmef",
+  "dlco",
+  "spo2"
+)
+preds_bin = c("hosp_past_year", "sex") # Binary predictors
+# Categorical split difference encoding
+preds_categ = c("smoking_status.X1", "smoking_status.X2", 
+                "mmrc.X1", "mmrc.X2", "mmrc.X3", "mmrc.X4") 
+preds <- c(preds_cts, preds_bin, preds_categ)
+```
+
+
+It is necessary now to reformat the binary and categorical predictors to numeric values.
+hosp_past_year and sex should both be encoded as 0,1
+smoking_status should be encoded using dummy variables (split encoding or binary thermometer encoding):
+*Dummy Variables for smoking_status:*
+Stratum - smoking_status_X1, smoking_status_X2
+never               0                   0     
+ex                  1                   0     
+current             1                   1     
+
+*Dummy Variables for mmrc:*
+Stratum - mmrc_X1,  mmrc_X2, mmrc_X3, mmrc_X4
+0           0           0       0       0
+1           1           0       0       0
+2           1           1       0       0
+3           1           1       1       0
+4           1           1       1       1
+mmrc should also be encoded using dummy variables:
+- mmrc_0, mmrc_1, mmrc_2, mmrc_3, mmrc_4
+```{r}
+library(dplyr)
+source("preprocessing_functions.R")
+
+prepped_imps <- prepare_categ_vars(train_imp, outcome)
+nrow(prepped_imps)
+```
+
+
+```{r}
+nimp = 2
+npreds = length(preds_cts) + length(preds_categ)
+# Generate list of completed dataframes
+dfs <- lapply(1:nimp, function(i) prepare_categ_vars(complete(train_imp, action=i), outcome))
+
+# Generate list of design matrices and imputed responses
+x <- list()
+y <- list()
+for (i in 1:nimp) {
+  x[[i]] <- as.matrix(dfs[[i]][, c(preds_cts, preds_categ)])
+  y[[i]] <- dfs[[i]][, "outcome"]
+}
+
+# preds_cts
+# preds_categ
+# x[[1]][, c(preds_cts, preds_categ)]
+
+```
+
+Create regularized model using stacked adaptive elastic net.
+```{r}
+# Calculate observational weights
+weights <- 1 - rowMeans(is.na(train_data[,]))
+pf <- rep(1,npreds)
+adWeight <- rep(1,npreds)
+alpha <- 1 #c(.5, 1)
+
+# Since 'Y' is a binary variable, we use family "binomial"
+# Also note, this is an incredibly time-consuming process.
+start.time <- Sys.time()
+
+print(start.time)
+fit <- cv.saenet(x, y, pf, adWeight, weights, family="binomial",
+                 alpha=alpha, nfolds=3)
+end.time <- Sys.time()
+print(end.time)
+coef(fit)
+
+```
+
+```{r}
+coefs <- coef(fit)
+coefs
+```
+
+```{r}
+coefs_1se <- coef(fit, lambda = fit$lambda.1se, alpha=fit$alpha.1se)
+coefs_1se
+```
+
+```{r}
+# Now for adaptive weights
+adWeight <- 1 / (abs(coef(fit)[-1]) + 1 / nrow(miselect.df))
+adWeight
+
+predict.saenet(model, imps) {
+  # 'model' is a saenet fitted model.
+  # 'imp' is the list of imputed datasets.
+  # Get coefficients
+  coefs.best <- coef(model)
+  coefs.1se <- coef(fit, lambda = fit$lambda.1se, alpha=fit$alpha.1se)
+  
+  # Iterate through each imputation in the data
+  nimps <- length(imps)
+  aucs <- as.data.frame(matrix(NA, nrow=nimps, ncol=))
+  for(i in 1:nimps){
+    
+  }
+  
+  # Matrix multiply against coefficients
+  
+  # Return predictions (for binomial, link is logit).
+}
+
+length(dfs)
+
+
+library(pROC)
+# logit
+yhat <- cbind(1, x[[1]]) %*% coefs
+probs <- exp(yhat) / (1 + exp(yhat))
+cbind(y[[1]], probs)
+roc_full <- roc(y[[1]], probs)
+auc(roc_full)
+ci(roc_full)
+plot(roc_full)
+coords(roc_full, "best", best.method="closest.topleft", ret=c("threshold", "sensitivity", "specificity"))
+
+yhat_1se <- cbind(1, x[[1]]) %*% coefs_1se
+probs_1se <- exp(yhat_1se) / (1 + exp(yhat_1se))
+cbind(y[[1]], probs_1se)
+roc_1se <- roc(y[[1]], probs_1se)
+auc(roc_1se)
+ci(roc_1se)
+plot(roc_1se)
+
+roc.test(roc_full, roc_1se)
+
+rocobj <- plot.roc(y[[1]], probs_1se)
+plot(rocobj)
+ci.sp.obj<-ci.sp(rocobj, sensitivities=seq(0, 1, 0.01), boot.n=100)
+plot(rocobj)
+plot(ci.sp.obj, type="shape", col="blue")
+
+# 1. Calculate training AUC (pROC)
+# 2. Calculate testing AUC (pROC)
+# 3. View coefficients
+# 4. Assess parsimony
+# 5. Compare to no-variable selection (training vs testing performance)
+# 6. Compare to conventional models.
+
+```
+
+```{r}
+x.all <- list()
+y.all <- list()
+dfs.all <- lapply(1:100, function(i) prepare_categ_vars(complete(train_imp, action=i), outcome))
+for (i in 1:100) {
+  x.all[[i]] <- as.matrix(dfs.all[[i]][, c(preds_cts, preds_categ)])
+  y.all[[i]] <- dfs.all[[i]][, "outcome"]
+}
+roc_list <- lapply(1:100, function(i) roc(y.all[[i]], cbind(1, x.all[[i]])%*%coefs))
+
+roc_data <- lapply(roc_list, function(roc) {
+  coords(roc, x = "all", ret = c("threshold", "sensitivity", "specificity"))
+})
+
+roc_df <- bind_rows(lapply(seq_along(roc_data), function(i) {
+  data.frame(
+    threshold = roc_data[[i]]$threshold,
+    sensitivity = roc_data[[i]]$sensitivity,
+    specificity = roc_data[[i]]$specificity,
+    roc_curve = i
+  )
+}))
+roc_df
+
+calc_mean_ci <- function(df) {
+  grouped <- df %>% group_by(specificity) %>%
+    summarize(
+      mean_sensitivity = mean(sensitivity),
+      ci_lower = quantile(sensitivity, probs=0),
+      ci_upper = quantile(sensitivity, probs = 1)
+    )
+  return(grouped)
+}
+mean_roc <- calc_mean_ci(roc_df)
+mean_roc
+library(ggplot2)
+roc_df %>% filter(roc_curve == 2)
+mean_roc
+ggplot() + 
+  geom_line(data = roc_df, aes(x=1-specificity, y=sensitivity, group=roc_curve),alpha=0.3, color="grey") + 
+  geom_line(data = mean_roc, aes(x = 1-specificity, y=mean_sensitivity), color="blue", size=1) + 
+  geom_ribbon(data=mean_roc, aes(x=1-specificity, ymin=ci_lower, ymax=ci_upper), fill="blue", alpha=0.2) +
+  labs(title = "ROC Curve with upper and lower bound across imputations",
+       x="1-Specificity",
+       y="Sensitivity") + 
+  theme_minimal()
+
+
+
+```
+
+```{r}
+# Are the sensitivities and specificities normally distributed in logit space?
+eps=1e-16
+ggplot(roc_df) +
+  geom_histogram(aes(x=log(sensitivity/(1-sensitivity+eps))), bins=100)
+
+```
+
+
+```{r}
+mydf <- as.data.frame(x[[1]])
+mydf$y <- y[[1]]
+mydf
+```
+
+```{r}
+# Adaptive weights were all set to 1 (so we just used elastic net)
+```
+
+
+```{r}
+library(parallel)
+# Check runtime for the saenet algo
+nimps <- c(2)
+preds <- c(preds_cts, preds_bin, preds_categ)
+npreds = length(preds) 
+#length(preds_cts) + length(preds_bin) + length(preds_categ)
+for(nimp in nimps) {
+  dfs <- lapply(1:nimp, 
+                function(i) prepare_categ_vars(
+                  complete(train_imp, action=i), outcome)
+                )
+  
+  # Generate list of design matrices and imputed responses
+  x.female <- list()
+  x.male <- list()
+  y.female <- list()
+  y.male <- list()
+  for (i in 1:nimp) {
+    x.female[[i]] <- as.matrix(dfs[[i]] %>%
+                          filter(sex==0) %>%
+                          select(all_of(preds)))
+    x.male[[i]] <- as.matrix(dfs[[i]] %>%
+                          filter(sex==1) %>%
+                          select(all_of(preds)))
+    y.female[[i]] <- dfs[[i]] %>%
+      filter(sex==0) %>%
+      select(outcome)
+    y.male[[i]] <- dfs[[i]] %>%
+      filter(sex==1) %>%
+      select(outcome)
+  }
+  x.both <- list(x.male, x.female)
+  y.both <- list(y.male, y.female)
+  length(y.both)
+  first_fit <- function(x, y){
+    
+    print(x)
+    print(y)
+    # print(length(x))
+    # print(nrow(x))
+    # print(length(y))
+    # print(nrow(y))
+  }
+  length(x.both[1])
+  # mcmapply(cv.saenet, 
+  #          x = x.male, y = y.male, 
+  #          pf,
+  #          adWeight,
+  #          weights,
+  #          family="binomial",
+  #          alpha=alpha,
+  #          nfolds=3,
+  #          mc.cores=12, SIMPLIFY=FALSE)
+  # 
+  
+  weights <- 1 - rowMeans(is.na(train_data[,]))
+  pf <- rep(1,npreds)
+  adWeight <- rep(1,npreds)
+  alpha <- 1 #c(.5, 1)
+  
+  # Since 'Y' is a binary variable, we use family "binomial"
+  # Also note, this is an incredibly time-consuming process.
+  start.time <- Sys.time()
+  print(start.time)
+  x.male
+  fit <- cv.saenet(x.male, y.male, pf, adWeight, weights, family="binomial",
+                   alpha=alpha, nfolds=3)
+  end.time <- Sys.time()
+  print(end.time)
+  time_diff <- end.time-start.time
+  new_times[nimp, 'time_diff'] <- time_diff
+}
+x.both
+nrow(x.male[[1]])
+nrow(y.male[[1]])
+nrow(x.female[[1]])
+nrow(y.female[[1]])
+```
+
+```{r}
+dfs
+```
+
+```{r}
+old_times <- times
+rownames(old_times) <- c(2:5)
+old_times
+times$time_diff <- old_times %>% filter(!is.na(time_diff)) %>% select(time_diff) %>% as.list()
+times
+library(ggplot2)
+ggplot() +
+  geom_line(times, aes(x=imp, y=time_diff))
+```
+```{r}
+new_times
+```
+
+```{r}
+time.df <- data.frame(imp=c(2,3,4,5,10,15), time_diff=c(3.710406	,5.580355, 7.909540, 8.355887, 13.46514, 20.55124))
+ggplot() + geom_line(data=time.df, aes(x=imp, y=time_diff))
+
+time_model_fit <- lm(formula=time_diff ~ imp, data=time.df)
+predict(time_model_fit, data.frame(imp=c(100)))
+
+```
+
+
+```{r}
+logit_fw <- function(x) {
+  return(log(x/(1-x)))
+}
+logit_bw <- function(x) {
+  return(1/(1+exp(-x)))
+}
+
+pool.auc <- function(AUCs, SEs, nimp) {
+  # AUCs: list of AUCs for each imputed dataset
+  # SEs: list of Standard Errors of AUC for each imputed dataset
+  # Transform to logit
+  
+  # Back transform from logit
+}
+
+```
+

@@ -1,0 +1,4 @@
+"0","ggplot(data_shadow,"
+"0","       aes(x=fev1_fvc,"
+"0","           colour = fivc_NA)) +"
+"0","  geom_density()"

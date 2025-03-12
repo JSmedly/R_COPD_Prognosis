@@ -1,0 +1,5 @@
+"0","# Don't apply passive imputation since BMI is no longer maintaining its ratio to weight and height"
+"0",""
+"0","train_data %>% "
+"0","  select(weight, height, bmi) %>%"
+"0","  mutate(bmi_calc = weight / height^2)"

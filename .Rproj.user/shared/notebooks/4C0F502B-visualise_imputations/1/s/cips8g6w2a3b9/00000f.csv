@@ -1,0 +1,3 @@
+"0","res <- residuals(modelFit1, type=""deviance"")"
+"0","plot(log(predict(modelFit1)), res)"
+"2","Warning: NaNs produced"

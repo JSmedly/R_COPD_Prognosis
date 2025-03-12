@@ -1,0 +1,5 @@
+"0","survfit(fit, x=x.female, y=y.female)
+"
+"2","Error in (function (formula, data, weights, subset, na.action, init, control,  : 
+  Response must be a survival object
+"

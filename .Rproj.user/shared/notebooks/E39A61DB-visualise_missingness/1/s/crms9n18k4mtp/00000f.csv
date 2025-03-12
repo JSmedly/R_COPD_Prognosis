@@ -1,0 +1,5 @@
+"0","library(ggplot2)"
+"0","data <- data %>%"
+"0","  mutate(date = as.numeric(difftime(date, as.Date(""2006-01-01""), units=""days"")))"
+"0",""
+"0","ggplot(data, aes(x=date, y=spo2)) + geom_miss_point(alpha=0.01)"

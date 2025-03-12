@@ -1,0 +1,7 @@
+"0","cox.imp <- futuremice(surv.data, n.core=n_core,
+                    predictorMatrix = pred_mat, method = meth,
+                    m = nimp, maxit = maxiter, print = FALSE
+  )
+"
+"2","Error: Identified global objects via static code inspection (function (x); {; mice(data = data, m = x, printFlag = FALSE, seed = seed,; ...); }). object 'meth' not found
+"

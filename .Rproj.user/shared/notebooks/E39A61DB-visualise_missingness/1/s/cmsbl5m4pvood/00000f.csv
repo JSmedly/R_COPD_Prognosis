@@ -1,0 +1,10 @@
+"0","gg_miss_var(data %>% select(preds))"
+"2","Warning: Using an external vector in selections was deprecated in tidyselect 1.1.0.
+Please use `all_of()` or `any_of()` instead.
+# Was:
+data %>% select(preds)
+
+# Now:
+data %>% select(all_of(preds))
+
+See <https://tidyselect.r-lib.org/reference/faq-external-vector.html>."
