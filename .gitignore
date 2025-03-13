@@ -1,4 +1,4 @@
-/data
-.RData
-.Rhistory
+data/
+/.RData
+/.Rhistory
 *.Rproj
