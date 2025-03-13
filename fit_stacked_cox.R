@@ -4,8 +4,8 @@ library(mice)
 source("preprocessing_functions.R")
 
 # Load data
-load("data/survival/surv_data.Rda")
-load("data/survival/surv_data_imp.Rda")
+load("data/survival/train_surv_data.Rda")
+load("data/survival/train_surv_data_imp.Rda")
 
 preds_cts = c(
   "age", 
@@ -34,7 +34,7 @@ nimp = 100
 # Create dfs
 dfs <- lapply(1:nimp,
               function(i) prepare_categ_vars(
-                complete(cox.imp, action=i), 
+                complete(train_surv_data_imp, action=i), 
               )
 )
 
@@ -53,11 +53,11 @@ x.male <- stacked_data %>%
 
 y.female <- stacked_data %>%
   filter(sex==0) %>%
-  select(outcomes_surv) %>%
+  select(all_of(outcomes_surv)) %>%
   as.matrix()
 y.male <- stacked_data %>%
   filter(sex==1) %>%
-  select(outcomes_surv) %>%
+  select(all_of(outcomes_surv)) %>%
   as.matrix()
 
 # Need to rename the y's
@@ -65,15 +65,15 @@ colnames(y.female) <- c("time", "status")
 colnames(y.male) <- c("time", "status")
 
 # Calculate weightings
-weights.female <- (1 - rowMeans(is.na(surv.data%>%filter(sex==0))))/nimp
+weights.female <- (1 - rowMeans(is.na(train_surv_data%>%filter(sex==0))))/nimp
 weights.female <- rep(weights.female, nimp)
-weights.male <- (1 - rowMeans(is.na(surv.data%>%filter(sex==1))))/nimp
+weights.male <- (1 - rowMeans(is.na(train_surv_data%>%filter(sex==1))))/nimp
 weights.male <- rep(weights.male, nimp)
 
 # Generate foldids so that the same row in each imputation is in the same fold
-nfolds = 5
-nrow.female <- nrow(surv.data%>%filter(sex==0))
-nrow.male <- nrow(surv.data%>%filter(sex==1))
+nfolds = 100
+nrow.female <- nrow(train_surv_data%>%filter(sex==0))
+nrow.male <- nrow(train_surv_data%>%filter(sex==1))
 foldids.female <- rep(sample(rep(1:nfolds, length.out=nrow.female)), nimp)
 foldids.male <- rep(sample(rep(1:nfolds, length.out=nrow.male)), nimp)
 
@@ -95,6 +95,7 @@ fit.male <- cv.glmnet(x.male, y.male,
                       weights=weights.male, foldid = foldids.male)
 print(paste("Fit basic male model in:", Sys.time()-start.time))
 
-model_dir <- "models/survival"
+model_dir <- "models/survival_new"
+create_folder_if_not_exists(model_dir)
 save(fit.female, file=paste(model_dir, "fit_female.Rda", sep="/"))
 save(fit.male, file=paste(model_dir, "fit_male.Rda", sep="/"))

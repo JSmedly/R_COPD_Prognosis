@@ -3,7 +3,8 @@ library(survival)
 library(dplyr)
 
 # Load data
-load("data/survival/surv_data.Rda")
+load("data/survival/train_surv_data.Rda")
+load("data/survival/test_surv_data.Rda")
 
 preds_cts = c(
   "age", # Months
@@ -30,28 +31,43 @@ outcomes_surv <- c("surv_time", "status")
 # Note Nelson-Aalen has NaNs in it which get imputed. 
 # To the best of my knowledge, the Nelson-Aalen function assists with imputation
 # but does not need to be used to create new models.
-surv.data <- surv.data %>%
+train_surv_data <- train_surv_data %>%
   select(all_of(c(outcomes_surv, preds))) %>%
-  mutate(hazard = nelsonaalen(surv.data, surv_time, status)) 
+  mutate(hazard = nelsonaalen(train_surv_data, surv_time, status)) 
+test_surv_data <- test_surv_data %>%
+  select(all_of(c(outcomes_surv, preds))) %>%
+  mutate(hazard = nelsonaalen(test_surv_data, surv_time, status)) 
 
 # Setup hyperparams for imputation
 nimp = 100
 maxiter = 15
 n_core = 5
 
-pred_mat <- make.predictorMatrix(surv.data)
+pred_mat <- make.predictorMatrix(train_surv_data)
 pred_mat[c("weight", "height"), c("bmi")] <- 0 # Remove feedback dependency
 pred_mat[,c("surv_time", "status")] <- 0
 pred_mat
-meth <- make.method(surv.data)
+meth <- make.method(train_surv_data)
 
 # Run imputation
+print("Imputing training data...")
 start.time <- Sys.time()
 print(start.time)
-cox.imp <- futuremice(surv.data, n.core=n_core,
+train_surv_data_imp <- futuremice(train_surv_data, n.core=n_core,
                       predictorMatrix = pred_mat, method = meth,
                       m = nimp, maxit = maxiter, print = FALSE
 )
 print("DURATION:")
 print(Sys.time()-start.time)
-save(cox.imp, file="data/survival/surv_data_imp.Rda")
+save(train_surv_data_imp, file="data/survival/train_surv_data_imp.Rda")
+
+print("Imputing testing data...")
+start.time <- Sys.time()
+print(start.time)
+test_surv_data_imp <- futuremice(test_surv_data, n.core=n_core,
+                                  predictorMatrix = pred_mat, method = meth,
+                                  m = nimp, maxit = maxiter, print = FALSE
+)
+print("DURATION:")
+print(Sys.time()-start.time)
+save(test_surv_data_imp, file="data/survival/test_surv_data_imp.Rda")

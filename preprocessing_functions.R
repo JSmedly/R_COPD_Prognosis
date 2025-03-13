@@ -86,6 +86,18 @@ prepare_train_test_splits <- function(data, n_years, test_span) {
   return(list(train_data, test_data, dropped_data))
 }
 
+prepare_surv_train_test_splits <- function(data, train_frac) {
+  # Split data into train and test sets, so that the train set has `train_frac` 
+  # of the data, and test set has `1-train_frac` of the data.
+  set.seed(42)
+  train_data <- data %>%
+    sample_frac(0.6)
+  test_data <- data %>%
+    anti_join(train_data, by = "RandID")
+  
+  return(list(train_data, test_data))
+}
+
 # Apply on each of the train-test splits.
 standardise_variables <- function(data, preds_cts) {
   print("preds_cts:")
@@ -112,7 +124,22 @@ standardise_variables <- function(data, preds_cts) {
   return(list(data, data_means, data_stddevs))
 }
 
-
+scale_test_data <- function(test_data, train_means, train_sds, preds_cts, adjust_age2) {
+  # "Normalises" the test data using the train means and train standard 
+  # deviation. Optionally, if adjust_age2 is TRUE, then also calculate and 
+  # adjust age squared.
+  test_data[preds_cts] <- sweep(test_data[preds_cts], 2,
+                                 as.numeric(train_means), "-")
+  if (adjust_age2) {
+    test_data <- test_data %>% mutate(age_2 = age^2, .after="age")
+  }
+  test_data[preds_cts] <- sweep(test_data[preds_cts]/2, 2,
+                                 as.numeric(train_sds), "/")
+  if (adjust_age2) {
+    test_data <- test_data %>% mutate(age_2 = age_2/(2*sd(age_2)))
+  }
+  return(test_data)
+}
 
 format_sub_super_script <- function(text) {
   # Formats strings to use flextable super-sub scripting
@@ -172,12 +199,7 @@ preprocess_single_visit <- function(data, n_years, test_span, preds_cts) {
   print(head(test_split))
   print(preds_cts)
   print(train_means)
-  test_split[preds_cts] <- sweep(test_split[preds_cts], 2,
-                                 as.numeric(train_means), "-")
-  test_split <- test_split %>% mutate(age_2 = age^2, .after="age")
-  test_split[preds_cts] <- sweep(test_split[preds_cts]/2, 2,
-                                 as.numeric(train_sds), "/")
-  test_split <- test_split %>% mutate(age_2 = age_2/(2*sd(age_2)))
+  test_split <- scale_test_data(test_split, train_means, train_sds, preds_cts, adjust_age2 = TRUE)
   
   #   # Convert logical to numeric now that standardisation has occured.
   # data <- data %>%
@@ -186,17 +208,25 @@ preprocess_single_visit <- function(data, n_years, test_span, preds_cts) {
   return(list(train_split, test_split, train_means, train_sds))
 }
 
-preprocess_survival <- function(data, preds_cts) {
-  data <- data %>%
+preprocess_survival <- function(data, train_frac, preds_cts) {
+  splits <- data %>%
     get_first_visit() %>%
     exclude_patients() %>%
-    basic_preprocessing() # No train-test splits
+    basic_preprocessing() %>%
+    prepare_surv_train_test_splits(train_frac)
   preds_cts <- c(preds_cts, "decades_from_start")
-  standardised_data <- standardise_variables(data, preds_cts)
-  data <- standardised_data[[1]]
-  data.means <- standardised_data[[2]]
-  data.sds <- standardised_data[[3]]
-  return(list(data, data.means, data.sds))
+  train_split <- splits[[1]]
+  test_split <- splits[[2]]
+  
+  train_outputs <- standardise_variables(train_split, preds_cts)
+  train_split <- train_outputs[[1]]
+  train_means <- train_outputs[[2]]
+  train_sds <- train_outputs[[3]]
+  
+  # Scale test data
+  test_split <- scale_test_data(test_split, train_means, train_sds, preds_cts, adjust_age2 = TRUE)
+  
+  return(list(train_split, test_split, train_means, train_sds))
 }
 
 
@@ -255,4 +285,13 @@ group_mmrc <- function(df) {
            mmrc.3 = mmrc.X1 + mmrc.X2 + mmrc.X3,
            mmrc.4 = mmrc.X1 + mmrc.X2 + mmrc.X3 + mmrc.X4) %>%
     select(-mmrc.X1, -mmrc.X2, -mmrc.X3, -mmrc.X4)
+}
+
+create_folder_if_not_exists <- function(path) {
+  if (!dir.exists(path)) {
+    dir.create(path, recursive = TRUE)
+    message("Folder created: ", path)
+  } else {
+    message("Folder already exists: ", path)
+  }
 }

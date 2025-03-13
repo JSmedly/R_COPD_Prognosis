@@ -35,13 +35,21 @@ data <- data %>%
   select(all_of(c(outcomes_surv, ids, preds)))
 
 # Preprocess variables
-outputs <- preprocess_survival(data, preds_cts)
-surv.data <- outputs[[1]]
-means <- outputs[[2]]
-sds <- outputs [[3]]
+train_frac <- 0.8
+outputs <- preprocess_survival(data, train_frac, preds_cts)
+train_surv_data <- outputs[[1]]
+test_surv_data <- outputs[[2]]
+means <- outputs[[3]]
+sds <- outputs [[4]]
+
+sum(train_surv_data[["status"]])
+sum(test_surv_data[["status"]])
 
 # Save data
 save_dir <- "data/survival"
-save(surv.data, file=paste(save_dir, "surv_data.Rda", sep="/"))
-save(means, file=paste(save_dir, "means.Rda", sep="/"))
-save(sds, file=paste(save_dir, "sds.Rda", sep="/"))
+create_folder_if_not_exists(save_dir)
+
+save(train_surv_data, file=paste(save_dir, "train_surv_data.Rda", sep="/"))
+save(test_surv_data, file=paste(save_dir, "test_surv_data.Rda", sep="/"))
+save(means, file=paste(save_dir, "train_means.Rda", sep="/"))
+save(sds, file=paste(save_dir, "train_sds.Rda", sep="/"))

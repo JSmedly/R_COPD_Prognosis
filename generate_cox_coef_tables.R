@@ -7,13 +7,9 @@ library(flextable)
 library(officer)
 source("preprocessing_functions.R")
 
-# Load data
-load("data/survival/surv_data.Rda")
-load("data/survival/surv_data_imp.Rda")
-
 create_coef_table <- function(operating_point) {
-  load("models/survival/fit_female.Rda")
-  load("models/survival/fit_male.Rda")
+  load("models/survival_new/fit_female.Rda")
+  load("models/survival_new/fit_male.Rda")
   
   preds_cts = c(
     "age", 
@@ -43,6 +39,7 @@ create_coef_table <- function(operating_point) {
     coef.female <- coef(fit.female, s=fit.female$lambda.1se)
     coef.male <- coef(fit.male, s=fit.male$lambda.1se)
   }
+  coef.female
   coef.df <- as.data.frame(as.matrix(cbind(coef.female, coef.male)))
   
   colnames(coef.df) <- c("Female", "Male")
@@ -112,9 +109,10 @@ create_coef_table <- function(operating_point) {
     set_table_properties(width=0.5) %>%
     # align(align = "center", part="all") %>%
     autofit()
-  save_as_docx(ft, 
-               path=paste("results/survival/coefs_", 
-                          operating_point, ".docx", sep=""))
+  save_as_docx(
+    ft,
+    path=paste("results/survival/coefs_", operating_point, ".docx", sep="")
+  )
 }
 
 create_coef_table(operating_point="min")

@@ -2,14 +2,7 @@ source("preprocessing_functions.R")
 library(dplyr)
 library(readr)
 
-create_folder_if_not_exists <- function(path) {
-  if (!dir.exists(path)) {
-    dir.create(path, recursive = TRUE)
-    message("Folder created: ", path)
-  } else {
-    message("Folder already exists: ", path)
-  }
-}
+
 
 
 # Load data
