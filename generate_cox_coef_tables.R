@@ -58,6 +58,7 @@ create_coef_table <- function(operating_point) {
     group_smoking_status() %>% 
     t() %>% 
     as.data.frame() 
+  coef.df <- exp(coef.df)
   # Define rownames
   rownames(coef.df) <- c(
     "Age",
@@ -94,7 +95,7 @@ create_coef_table <- function(operating_point) {
   }
   
   # Automatically make points bold
-  bold_points <- which(coef.df[,2:ncol(coef.df)] != 0, arr.ind=TRUE)
+  bold_points <- which(coef.df[,2:ncol(coef.df)] != 1.0, arr.ind=TRUE)
   bold_points[,"col"] <- bold_points[,"col"] +1
   for (row in 1:nrow(bold_points)) {
     ft <- ft %>%

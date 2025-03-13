@@ -7,81 +7,78 @@ source("preprocessing_functions.R")
 library(mice)
 library(pROC)
 library(psfmi)
+library(glmnet)
+library(survival)
 
 ###########################################################################
 # FUNCTIONS FOR CREATING PERFORMANCE TABLE
 create_roc_list <- function(y, preds) {
   # Create list of roc objects
-  roc <- lapply(seq_along(y), function(i) roc(as.numeric(y[[i]]), 
-                                              as.numeric(preds[[i]]),
-                                              direction="<",
-                                              levels=c(0,1)))
+  roc <- lapply(seq_along(preds), function(i) c.index(preds[[i]],
+                                                      y[[i]]))
   return(roc)
 }
+
+c.index <- function (pred, y, weights = rep(1, nrow(y))) 
+{
+  if (!is.Surv(y)) 
+    y = Surv(y[, "time"], y[, "status"])
+  f = -pred
+  if (missing(weights)) 
+    concordance(y ~ f)
+  else concordance(y ~ f, weights = weights)
+}
+
 
 calculate_auc_df <- function(roc_list) {
   # Creates a dataframe with nimp rows of auc mean and standard errors  
   auc_df <- bind_rows(lapply(seq_along(roc_list), function(i) {
     auc_df <- data.frame(
-      auc_mean = ci(roc_list[[i]])[2],
-      auc_se = (ci(roc_list[[i]])[3]-ci(roc_list[[i]])[1])/(2*1.96)
+      auc_mean = roc_list[[i]]$concordance,
+      auc_se = sqrt(roc_list[[i]]$var)
     )
     return(auc_df)
   }))
   return(auc_df)
 }
 
-calculate_sens_spec_df <- function(roc_list) {
-  # Creates a dataframe with nimp rows of sensitivity and specificity
-  #   means and standard errors
-  sens_spec_df <- bind_rows(lapply(seq_along(roc_list), function(i) {
-    boot.n <- 1000
-    coord <- coords(roc_list[[i]], "best", 
-                    ret=c("sensitivity", "specificity"), 
-                    best.method="closest.topleft")
-    sens <- ci.se(roc_list[[i]], specificities=coord$specificity,
-                  boot.n=boot.n, progress="none")
-    spec <- ci.sp(roc_list[[i]], sensitivities=coord$sensitivity,
-                  boot.n=boot.n, progress="none")
-    sens_spec_df <- data.frame(
-      sens_mean = sens[2],
-      sens_se = (sens[3]-sens[1])/(2*1.96),
-      spec_mean = spec[2],
-      spec_se = (spec[3]-spec[1])/(2*1.96)
-    )
-    return(sens_spec_df)
-  }))
-}
+outcomes_surv <- c("surv_time", "status")
 
+nimp <- 100
+operating_point <- "1se"
+dataset <- "test"
 
-nimp <- 5
+# Load models
+load("models/survival_new/fit_female.Rda")
+load("models/survival_new/fit_male.Rda")
 
 # load coefficients
 if (operating_point=="min") {
-  load("results/coefs_min.Rda")
+  load("results/survival/coefs_min.Rda")
 } else if (operating_point=="1se") {
-  load("results/coefs_1se.Rda")
+  load("results/survival/coefs_1se.Rda")
 }
 
 if (dataset == "train") {
   load("data/survival/train_surv_data_imp.Rda")
   dfs <- lapply(1:nimp, function(i) {
-    prepare_categ_vars(complete(train_surv_data_imp, action=i), outcome)
+    prepare_categ_vars(complete(train_surv_data_imp, action=i))
   })  
 } else if (dataset == "test") {
   load("data/survival/test_surv_data_imp.Rda")
   dfs <- lapply(1:nimp, function(i) {
-    prepare_categ_vars(complete(test_surv_data_imp, action=i), outcome)
+    prepare_categ_vars(complete(test_surv_data_imp, action=i))
   })
 }
-preds <- rownames(coef.df)[-1]
+preds <- rownames(coef.df)
 
 # Female lists
 x.female <- list()
 y.female <- list()
 preds.female <- list()
+coef.df
 coef.female <- coef.df %>%
-  select(paste(outcome, "female", sep=".")) %>%
+  select("Female") %>%
   as.matrix()
 roc.female <- list()
 
@@ -90,66 +87,55 @@ x.male <- list()
 y.male <- list()
 preds.male <- list()
 coef.male <- coef.df %>% 
-  select(paste(outcome, "male", sep=".")) %>%
+  select("Male") %>%
   as.matrix()
 roc.male <- list()
 
-
+i <- 1
 for (i in 1:nimp) {
   # ...generate design matrices
   x.female[[i]] <-
     as.matrix(dfs[[i]][dfs[[i]][,"sex"]==0, preds])
   x.male[[i]] <-
     as.matrix(dfs[[i]][dfs[[i]][,"sex"]==1, preds])
-  y.female[[i]] <- dfs[[i]][dfs[[i]][,"sex"]==0, "outcome"]
-  y.male[[i]] <- dfs[[i]][dfs[[i]][,"sex"]==1, "outcome"]
-  
+  y.female[[i]] <- dfs[[i]][dfs[[i]][,"sex"]==0, outcomes_surv]
+  colnames(y.female[[i]]) <- c("time", "status")
+  y.male[[i]] <- dfs[[i]][dfs[[i]][,"sex"]==1, outcomes_surv]
+  colnames(y.male[[i]]) <- c("time", "status")
   # ...calculate predictions
-  preds.female[[i]] <- cbind(1, x.female[[i]]) %*% coef.female
-  preds.male[[i]] <- cbind(1, x.male[[i]]) %*% coef.male
+  x.female[[i]]
+  
+  preds.female[[i]] <- predict(fit.female, newx=x.female[[i]], s="lambda.1se")
+  preds.male[[i]] <- predict(fit.male, newx=x.male[[i]], s="lambda.1se")
+  rownames(preds.female[[i]]) <- 1:length(preds.female[[i]])
+  rownames(preds.male[[i]]) <- 1:length(preds.male[[i]])
 }
 
 # Create ROC objects
+y.female[[i]][, "status"]
+preds.female[[i]]
+y.female[[i]]
+
+conc <- c.index(preds.female[[i]], y.female[[i]])
+conc$se
+
 roc_list.female <- create_roc_list(y.female, preds.female)
 roc_list.male <- create_roc_list(y.male, preds.male)
 
-# Compare ROC curves (print p values)
-tests <- lapply(seq_along(roc_list.female), function(i) {
-  roc.test(roc_list.female[[i]], roc_list.male[[i]])$p.value})
-median_p <- rbind(median_p, median(as.numeric(tests)))
-print(median_p)
-
-# Calculate AUC, Sens, and Spec mean and standard errors for each imp
 auc_df.female <- calculate_auc_df(roc_list.female)
 auc_df.male <- calculate_auc_df(roc_list.male)
-sens_spec_df.female <- calculate_sens_spec_df(roc_list.female)
-sens_spec_df.male <- calculate_sens_spec_df(roc_list.male)
-
 
 # Calculate AUC, Sens, Spec and pool using Rubin's rules
 ## Female
-auc_pooled.female <- rbind(auc_pooled.female,
-                           pool_auc(auc_df.female$auc_mean, 
-                                    auc_df.female$auc_se, 
-                                    nimp=nimp))
-sens_pooled.female <- rbind(sens_pooled.female,
-                            pool_auc(sens_spec_df.female$sens_mean,
-                                     sens_spec_df.female$sens_se,
-                                     nimp=nimp))
-spec_pooled.female <- rbind(spec_pooled.female,
-                            pool_auc(sens_spec_df.female$spec_mean,
-                                     sens_spec_df.female$spec_se,
-                                     nimp=nimp))
+auc_pooled.female <- pool_auc(auc_df.female$auc_mean, 
+                              auc_df.female$auc_se, 
+                              nimp=nimp)
 ## Male
-auc_pooled.male <- rbind(auc_pooled.male, 
-                         pool_auc(auc_df.male$auc_mean, 
-                                  auc_df.male$auc_se, 
-                                  nimp=nimp))
-sens_pooled.male <- rbind(sens_pooled.male,
-                          pool_auc(sens_spec_df.male$sens_mean,
-                                   sens_spec_df.male$sens_se,
-                                   nimp=nimp))
-spec_pooled.male <- rbind(spec_pooled.male,
-                          pool_auc(sens_spec_df.male$spec_mean,
-                                   sens_spec_df.male$spec_se,
-                                   nimp=nimp))
+auc_pooled.male <- pool_auc(auc_df.male$auc_mean, 
+                            auc_df.male$auc_se, 
+                            nimp=nimp)
+
+auc_pooled.all <- rbind(auc_pooled.female, auc_pooled.male)
+rownames(auc_pooled.all) <- c("Female", "Male")
+auc_pooled.all
+save_as_docx(auc_pooled.all, path="results/survival/auc_all.docx")
